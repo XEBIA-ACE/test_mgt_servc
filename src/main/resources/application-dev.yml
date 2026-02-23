@@ -1,12 +1,25 @@
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/user_mgmt_dev
+    username: postgres
+    password: postgres
+
   jpa:
     show-sql: true
+
+jwt:
+  secret: ZGV2U2VjcmV0S2V5Rm9yTG9jYWxEZXZlbG9wbWVudE9ubHlEb05vdFVzZUluUHJvZA==
+  access-token-expiration-ms: 3600000   # 1 hour for easier dev testing
+  refresh-token-expiration-ms: 604800000
 
 logging:
   level:
     com.example.usermanagement: DEBUG
-    org.springframework.security: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql: TRACE
+    org.springframework.security: DEBUG
+
+management:
+  endpoint:
+    health:
+      show-details: always

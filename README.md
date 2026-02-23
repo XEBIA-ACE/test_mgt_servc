@@ -1,137 +1,86 @@
 # User Management Service
 
-A production-ready REST API for user registration, authentication, and profile management built with **Java 21**, **Spring Boot 3**, **OAuth 2.0 / JWT**, and **PostgreSQL**.
+A production-ready REST API for user management with JWT-based authentication, role-based access control, and refresh token rotation.
 
----
+## Stack
 
-## Table of Contents
-
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [API Reference](#api-reference)
-- [Security](#security)
-- [Database](#database)
-- [Testing](#testing)
-- [Docker](#docker)
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                        HTTP Clients                      │
-└─────────────────────────┬────────────────────────────────┘
-                          │
-              ┌───────────▼────────────┐
-              │  JwtAuthenticationFilter│  (stateless auth)
-              └───────────┬────────────┘
-                          │
-         ┌────────────────▼─────────────────┐
-         │           Controllers             │
-         │  AuthController  UserController   │
-         └────────────────┬─────────────────┘
-                          │
-         ┌────────────────▼─────────────────┐
-         │             Services              │
-         │  AuthService    UserService       │
-         └────────────────┬─────────────────┘
-                          │
-         ┌────────────────▼─────────────────┐
-         │           Repositories            │
-         │  UserRepository RefreshTokenRepo  │
-         └────────────────┬─────────────────┘
-                          │
-              ┌───────────▼────────────┐
-              │       PostgreSQL        │
-              └────────────────────────┘
-```
-
-**Layer separation:**
-| Layer | Package | Responsibility |
-|-------|---------|----------------|
-| API | `controller` | HTTP routing, request validation, serialization |
-| Business | `service` | Domain logic, orchestration |
-| Data | `repository` | JPA data access |
-| Security | `security` | JWT, filters, UserDetails |
-| Config | `config` | Spring beans, properties |
-
----
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Runtime | Java 21 |
+| Layer | Technology |
+|---|---|
+| Language | Java 21 |
 | Framework | Spring Boot 3.2 |
 | Security | Spring Security + JWT (JJWT 0.12) |
-| ORM | Spring Data JPA / Hibernate |
 | Database | PostgreSQL 16 |
 | Migrations | Flyway |
-| Docs | SpringDoc OpenAPI 3 (Swagger UI) |
+| Documentation | SpringDoc OpenAPI 3 (Swagger UI) |
 | Mapping | MapStruct |
 | Build | Maven |
-| Container | Docker / Docker Compose |
+| Runtime | Docker (multi-stage, non-root) |
 
 ---
 
-## Quick Start
+## Quick Start (Docker Compose)
+
+```bash
+# 1. Clone the repository
+git clone <repo-url>
+cd user-management-service
+
+# 2. Copy and review environment config
+cp .env.example .env
+
+# 3. Start PostgreSQL + the application
+docker compose up --build
+
+# 4. Verify the service is healthy
+curl http://localhost:8080/actuator/health
+
+# 5. Open the interactive API docs
+open http://localhost:8080/swagger-ui.html
+```
+
+> **Optional:** start PgAdmin alongside:
+> ```bash
+> docker compose --profile tools up
+> # then open http://localhost:5050 (admin@example.com / admin)
+> ```
+
+---
+
+## Local Development (without Docker app container)
 
 ### Prerequisites
 
 - Java 21+
 - Maven 3.9+
-- Docker & Docker Compose
-
-### Option A — Docker Compose (recommended)
+- PostgreSQL 16 running locally (or use `docker compose up postgres`)
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/example/user-management-service.git
-cd user-management-service
-
-# 2. Copy environment file
-cp .env.example .env
-# Edit .env with your values (especially JWT_SECRET in production)
-
-# 3. Start all services
-docker compose up --build
-
-# 4. Explore the API
-open http://localhost:8080/swagger-ui.html
-```
-
-### Option B — Local Maven
-
-```bash
-# Start only PostgreSQL
+# Start only the database
 docker compose up postgres -d
 
-# Run the application
-./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+# Copy env and edit if needed
+cp .env.example .env
 
-# Swagger UI
-open http://localhost:8080/swagger-ui.html
+# Run with dev profile (reads application-dev.yml)
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
 ---
 
-## Configuration
+## Environment Variables
 
-All sensitive values must be supplied via environment variables. Copy `.env.example` to `.env` and fill in:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `APP_ENV` | Active profile (`dev`/`staging`/`prod`) | `dev` |
-| `DB_URL` | JDBC URL | `jdbc:postgresql://localhost:5432/user_mgmt` |
-| `DB_USERNAME` | DB user | `postgres` |
-| `DB_PASSWORD` | DB password | `postgres` |
-| `JWT_SECRET` | Base64-encoded HMAC-SHA-256 key (≥256 bit) | dev default |
-| `JWT_ACCESS_EXPIRY_MS` | Access token TTL in ms | `900000` (15 min) |
-| `JWT_REFRESH_EXPIRY_MS` | Refresh token TTL in ms | `604800000` (7 days) |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed origins | `http://localhost:3000` |
+| Variable | Default | Description |
+|---|---|---|
+| `SPRING_PROFILES_ACTIVE` | `dev` | Active Spring profile |
+| `PORT` | `8080` | HTTP port |
+| `DB_URL` | `jdbc:postgresql://localhost:5432/user_mgmt` | JDBC connection string |
+| `DB_USERNAME` | `postgres` | Database username |
+| `DB_PASSWORD` | — | Database password |
+| `DB_POOL_SIZE` | `10` | HikariCP max pool size |
+| `JWT_SECRET` | — | **Required.** Base64-encoded 256-bit secret |
+| `JWT_ISSUER` | `user-management-service` | JWT `iss` claim value |
+| `JWT_ACCESS_EXPIRY_MS` | `900000` | Access token TTL (ms) |
+| `JWT_REFRESH_EXPIRY_MS` | `604800000` | Refresh token TTL (ms) |
 
 Generate a secure JWT secret:
 ```bash
@@ -142,148 +91,160 @@ openssl rand -base64 64
 
 ## API Reference
 
-Interactive docs: **`http://localhost:8080/swagger-ui.html`**
+Base URL: `http://localhost:8080`
+
+Interactive docs: `GET /swagger-ui.html`
 
 ### Authentication
 
 | Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/api/v1/auth/login` | Public | Authenticate; receive access + refresh tokens |
+|---|---|---|---|
+| `POST` | `/api/v1/auth/register` | Public | Register a new user |
+| `POST` | `/api/v1/auth/login` | Public | Login, receive access + refresh tokens |
 | `POST` | `/api/v1/auth/refresh` | Public | Rotate tokens using a refresh token |
 | `POST` | `/api/v1/auth/logout` | Public | Revoke a refresh token |
 
-#### Login
-
-```http
-POST /api/v1/auth/login
-Content-Type: application/json
-
-{
-  "usernameOrEmail": "john@example.com",
-  "password": "Secret@1"
-}
+**Register**
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "email": "jane@example.com",
+    "username": "jane_doe",
+    "password": "Secret@123",
+    "firstName": "Jane",
+    "lastName": "Doe"
+  }'
 ```
 
-```json
-{
-  "success": true,
-  "data": {
-    "access_token": "eyJ...",
-    "refresh_token": "550e8400-...",
-    "token_type": "Bearer",
-    "expires_in": 900,
-    "user": { "id": "...", "username": "john", ... }
-  }
-}
+**Login**
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"usernameOrEmail": "jane_doe", "password": "Secret@123"}'
 ```
 
 ### Users
 
 | Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/api/v1/users/register` | Public | Register a new account |
-| `GET` | `/api/v1/users/me` | User | Get own profile |
-| `PUT` | `/api/v1/users/me` | User | Update own profile |
-| `PATCH` | `/api/v1/users/me/password` | User | Change own password |
-| `GET` | `/api/v1/users` | Admin | List all users (paginated) |
-| `GET` | `/api/v1/users/search?q=` | Admin | Search users |
-| `GET` | `/api/v1/users/{id}` | Admin | Get user by ID |
-| `PUT` | `/api/v1/users/{id}` | Admin | Update any user |
-| `POST` | `/api/v1/users/{id}/roles/{role}` | Admin | Assign a role |
-| `DELETE` | `/api/v1/users/{id}/roles/{role}` | Admin | Remove a role |
-| `PATCH` | `/api/v1/users/{id}/disable` | Admin | Disable user |
-| `PATCH` | `/api/v1/users/{id}/enable` | Admin | Enable user |
-| `DELETE` | `/api/v1/users/{id}` | Admin | Delete user |
+|---|---|---|---|
+| `GET` | `/api/v1/users` | Bearer | List users (paginated, searchable) |
+| `GET` | `/api/v1/users/me` | Bearer | Get current user profile |
+| `GET` | `/api/v1/users/{id}` | Bearer | Get user by ID |
+| `PATCH` | `/api/v1/users/{id}` | Bearer | Update profile (self or admin) |
+| `PATCH` | `/api/v1/users/{id}/password` | Bearer | Change password (self or admin) |
 
-### Health & Metrics
+**List users with search**
+```bash
+curl "http://localhost:8080/api/v1/users?q=jane&page=0&size=10" \
+  -H 'Authorization: Bearer <access_token>'
+```
+
+### Admin
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/admin/users/{id}/disable` | ADMIN | Disable a user account |
+| `POST` | `/api/v1/admin/users/{id}/enable` | ADMIN | Enable / unlock a user account |
+| `POST` | `/api/v1/admin/users/{id}/roles/{roleName}` | ADMIN | Assign a role |
+| `DELETE` | `/api/v1/admin/users/{id}/roles/{roleName}` | ADMIN | Remove a role |
+
+Valid role names: `ROLE_USER`, `ROLE_MODERATOR`, `ROLE_ADMIN`
+
+### Health & Observability
 
 | Path | Description |
-|------|-------------|
-| `/api/v1/ping` | Lightweight liveness check |
-| `/actuator/health` | Spring Boot health (readiness + liveness) |
-| `/actuator/metrics` | Micrometer metrics |
-| `/actuator/prometheus` | Prometheus scrape endpoint |
+|---|---|
+| `GET /api/v1/ping` | Simple liveness probe |
+| `GET /actuator/health` | Detailed health (Spring Actuator) |
+| `GET /actuator/metrics` | Metrics (ADMIN only) |
+| `GET /actuator/prometheus` | Prometheus scrape endpoint |
 
 ---
 
-## Security
-
-- **JWT (HMAC-SHA-256):** Short-lived access tokens (15 min) paired with long-lived refresh tokens (7 days).
-- **Token rotation:** Refresh tokens are single-use; a new pair is issued on every refresh.
-- **Server-side revocation:** Refresh tokens are persisted; logout and password changes invalidate all active tokens immediately.
-- **BCrypt:** Passwords are hashed with BCrypt (strength 12).
-- **Role-based access control:** `ROLE_USER`, `ROLE_ADMIN`, `ROLE_MODERATOR` enforced via `@PreAuthorize`.
-- **CORS:** Restricted to configured origins.
-- **Input validation:** Bean Validation on all request bodies.
-
-### Default Admin Credentials
-
-A seed admin user is created by migration V2. **Change the password immediately after first login.**
+## Project Structure
 
 ```
-Email: admin@example.com
-Password: Admin@12345
+src/main/java/com/example/usermanagement/
+├── UserManagementApplication.java   # Entry point
+├── config/                          # Security, JWT, Swagger, Audit config
+├── controller/                      # REST controllers (Auth, User, Admin, Health)
+├── dto/
+│   ├── request/                     # Validated inbound DTOs
+│   └── response/                    # Outbound DTOs (never expose entities)
+├── exception/                       # Custom exceptions + GlobalExceptionHandler
+├── mapper/                          # MapStruct entity ↔ DTO mappers
+├── model/                           # JPA entities (User, Role, RefreshToken)
+├── repository/                      # Spring Data JPA repositories
+├── security/                        # JWT filter, token provider, UserDetailsService
+└── service/                         # Business logic (Auth, User, TokenCleanup)
+
+src/main/resources/
+├── application.yml                  # Shared config
+├── application-{dev,staging,prod}.yml
+└── db/migration/                    # Flyway SQL scripts (V1–V4)
 ```
 
 ---
 
-## Database
+## Security Highlights
 
-Schema is managed by **Flyway**. Migrations live in `src/main/resources/db/migration/`:
-
-| Version | Description |
-|---------|-------------|
-| V1 | `users` table |
-| V2 | `user_roles` table + seed admin |
-| V3 | `refresh_tokens` table |
+- **Passwords** hashed with BCrypt (cost factor 12)
+- **JWT access tokens** (HS256, 15-min TTL by default)
+- **Refresh token rotation** — old token revoked on every refresh
+- **Account lockout** after 5 consecutive failed logins
+- **Stateless sessions** — no HTTP session, pure JWT
+- **Role-based access control** via `@PreAuthorize` + `@EnableMethodSecurity`
+- Swagger UI **disabled in production** profile
+- All sensitive values read from **environment variables**
 
 ---
 
-## Testing
+## Running Tests
 
 ```bash
-# Unit + integration tests
+# Unit + integration tests (uses H2 in-memory DB for speed)
 ./mvnw test
 
-# Tests with coverage report
-./mvnw verify
-
-# View report
-open target/site/jacoco/index.html
-```
-
-Test structure:
-```
-src/test/java/com/example/usermanagement/
-├── controller/
-│   ├── AuthControllerTest.java    # MockMvc integration tests
-│   └── UserControllerTest.java
-└── service/
-    └── UserServiceTest.java       # Mockito unit tests
+# Run only integration tests (requires Docker for Testcontainers)
+./mvnw verify -P integration-tests
 ```
 
 ---
 
-## Docker
+## Database Migrations
 
-```bash
-# Start app + PostgreSQL
-docker compose up --build
+Flyway runs automatically on startup. Scripts live in `src/main/resources/db/migration/`:
 
-# Start with pgAdmin UI
-docker compose --profile tools up
+| Version | Description |
+|---|---|
+| V1 | Create `roles` table + seed default roles |
+| V2 | Create `users` table with audit columns |
+| V3 | Create `user_roles` join table |
+| V4 | Create `refresh_tokens` table |
 
-# Rebuild app only
-docker compose up app --build
+---
 
-# Stop and remove volumes
-docker compose down -v
+## Architecture Overview
+
 ```
-
-### Multi-stage build
-
-The `Dockerfile` uses a two-stage build:
-1. **Builder stage** — JDK 21 Alpine, Maven build
-2. **Runtime stage** — JRE 21 Alpine, non-root user, optimised JVM flags
-
-Image size: ~200 MB (JRE + fat jar).
+Client
+  │
+  ▼
+JwtAuthenticationFilter      ← validates Bearer token, sets SecurityContext
+  │
+  ▼
+Spring Security FilterChain  ← enforces URL rules + method-level @PreAuthorize
+  │
+  ▼
+Controller Layer             ← input validation (@Valid), HTTP status codes
+  │
+  ▼
+Service Layer                ← business logic, transaction boundaries
+  │
+  ▼
+Repository Layer             ← Spring Data JPA + custom @Query
+  │
+  ▼
+PostgreSQL                   ← schema managed by Flyway
+```

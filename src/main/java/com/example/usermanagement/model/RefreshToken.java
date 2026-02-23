@@ -1,17 +1,19 @@
-package com.example.usermanagement.model.entity;
+package com.example.usermanagement.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Persisted refresh tokens allow server-side revocation without waiting for expiry.
- */
 @Entity
-@Table(name = "refresh_tokens",
-    indexes = @Index(name = "idx_refresh_tokens_token", columnList = "token"))
+@Table(
+    name = "refresh_tokens",
+    indexes = @Index(name = "idx_refresh_tokens_token", columnList = "token")
+)
+@EntityListeners(AuditingEntityListener.class)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -23,30 +25,28 @@ public class RefreshToken {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    /** Opaque random token value stored in the database. */
-    @Column(nullable = false, unique = true)
+    @Column(unique = true, nullable = false, length = 500)
     private String token;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
-    @Column(name = "revoked", nullable = false)
+    @Column(name = "is_revoked", nullable = false)
     @Builder.Default
     private boolean revoked = false;
 
+    @Column(name = "device_info", length = 255)
+    private String deviceInfo;
+
+    @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
-    @Builder.Default
-    private Instant createdAt = Instant.now();
+    private Instant createdAt;
 
     public boolean isExpired() {
         return Instant.now().isAfter(expiresAt);
-    }
-
-    public boolean isValid() {
-        return !revoked && !isExpired();
     }
 }

@@ -1,25 +1,18 @@
 package com.example.usermanagement.dto.request;
 
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.Pattern;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
+@Schema(description = "User profile update request")
 public class UpdateUserRequest {
 
-    @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
-    @Pattern(regexp = "^[a-zA-Z0-9_-]+$",
-             message = "Username may only contain letters, digits, underscores, and hyphens")
-    private String username;
-
-    @Email(message = "Invalid email address")
-    @Size(max = 254)
-    private String email;
-
-    @Size(max = 100)
+    @Size(max = 100, message = "First name must not exceed 100 characters")
+    @Schema(description = "First name", example = "Jane")
     private String firstName;
 
-    @Size(max = 100)
+    @Size(max = 100, message = "Last name must not exceed 100 characters")
+    @Schema(description = "Last name", example = "Doe")
     private String lastName;
 }

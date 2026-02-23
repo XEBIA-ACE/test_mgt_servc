@@ -1,8 +1,22 @@
 #!/bin/sh
-# Maven Wrapper script for Unix
-# Licensed to the Apache Software Foundation (ASF)
+# Maven wrapper script (generated)
+# Usage: ./mvnw [goals]
 
 set -e
 
-MAVEN_PROJECTBASEDIR="${MAVEN_BASEDIR:-$(dirname "$0")}"
-exec "$MAVEN_PROJECTBASEDIR/.mvn/wrapper/mvnw" "$@"
+if [ -z "$JAVA_HOME" ]; then
+  JAVACMD=java
+else
+  JAVACMD="$JAVA_HOME/bin/java"
+fi
+
+JAR="$( cd "$( dirname "$0" )"; pwd )/.mvn/wrapper/maven-wrapper.jar"
+
+if [ ! -f "$JAR" ]; then
+  # Download wrapper jar on first run
+  WRAPPER_URL=$(grep wrapperUrl .mvn/wrapper/maven-wrapper.properties | cut -d= -f2)
+  echo "Downloading Maven wrapper..."
+  curl -fsSL -o "$JAR" "$WRAPPER_URL" 2>/dev/null || wget -q -O "$JAR" "$WRAPPER_URL"
+fi
+
+exec "$JAVACMD" -jar "$JAR" "$@"

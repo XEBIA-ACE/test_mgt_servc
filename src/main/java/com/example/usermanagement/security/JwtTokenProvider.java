@@ -1,108 +1,80 @@
 package com.example.usermanagement.security;
 
-import com.example.usermanagement.config.JwtProperties;
-import com.example.usermanagement.model.entity.Role;
+import com.example.usermanagement.config.JwtConfig;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
-import java.time.Instant;
+import java.util.Collection;
 import java.util.Date;
-import java.util.Set;
-import java.util.UUID;
-import java.util.stream.Collectors;
+import java.util.List;
+import java.util.function.Function;
 
-/**
- * Handles JWT generation, parsing, and validation.
- * Uses HMAC-SHA-256 with a minimum 256-bit secret derived from application config.
- */
-@Slf4j
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class JwtTokenProvider {
 
-    private final JwtProperties jwtProperties;
+    private final JwtConfig jwtConfig;
 
-    /** Generate an access token for a successfully authenticated principal. */
-    public String generateAccessToken(Authentication authentication) {
-        UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
-        return generateAccessToken(principal);
-    }
-
-    public String generateAccessToken(UserPrincipal principal) {
-        Instant now = Instant.now();
-        Instant expiry = now.plusMillis(jwtProperties.getAccessTokenExpirationMs());
-
-        Set<String> roles = principal.getAuthorities().stream()
+    /**
+     * Generates a signed access JWT for the given user.
+     * Claims include: subject (username), roles, and issuer.
+     */
+    public String generateAccessToken(UserDetails userDetails) {
+        List<String> roles = userDetails.getAuthorities().stream()
             .map(GrantedAuthority::getAuthority)
-            .collect(Collectors.toSet());
+            .toList();
 
         return Jwts.builder()
-            .subject(principal.getId().toString())
-            .issuer(jwtProperties.getIssuer())
-            .issuedAt(Date.from(now))
-            .expiration(Date.from(expiry))
-            .claim("username", principal.getUsername())
-            .claim("email", principal.getEmail())
+            .subject(userDetails.getUsername())
+            .issuer(jwtConfig.getIssuer())
             .claim("roles", roles)
-            .signWith(signingKey())
+            .issuedAt(new Date())
+            .expiration(new Date(System.currentTimeMillis() + jwtConfig.getAccessTokenExpirationMs()))
+            .signWith(getSigningKey(), Jwts.SIG.HS256)
             .compact();
     }
 
-    /** Extract the user ID (subject) from a validated token. */
-    public UUID extractUserId(String token) {
-        return UUID.fromString(parseClaims(token).getSubject());
-    }
-
     public String extractUsername(String token) {
-        return parseClaims(token).get("username", String.class);
+        return extractClaim(token, Claims::getSubject);
     }
 
-    /**
-     * Validate the token signature and expiry.
-     *
-     * @return true if valid, false otherwise (errors are logged at WARN level)
-     */
-    public boolean validateToken(String token) {
-        try {
-            parseClaims(token);
-            return true;
-        } catch (ExpiredJwtException e) {
-            log.warn("JWT token is expired: {}", e.getMessage());
-        } catch (UnsupportedJwtException e) {
-            log.warn("JWT token is unsupported: {}", e.getMessage());
-        } catch (MalformedJwtException e) {
-            log.warn("JWT token is malformed: {}", e.getMessage());
-        } catch (SecurityException e) {
-            log.warn("JWT signature validation failed: {}", e.getMessage());
-        } catch (IllegalArgumentException e) {
-            log.warn("JWT claims string is empty: {}", e.getMessage());
-        }
-        return false;
+    public boolean isTokenValid(String token, UserDetails userDetails) {
+        final String username = extractUsername(token);
+        return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
     }
 
-    public long getAccessTokenExpirationSeconds() {
-        return jwtProperties.getAccessTokenExpirationMs() / 1000;
+    public boolean isTokenExpired(String token) {
+        return extractClaim(token, Claims::getExpiration).before(new Date());
     }
 
-    // ── Private helpers ──────────────────────────────────────────────────────
+    @SuppressWarnings("unchecked")
+    public List<String> extractRoles(String token) {
+        return extractClaim(token, claims -> (List<String>) claims.get("roles"));
+    }
 
-    private Claims parseClaims(String token) {
+    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+        final Claims claims = extractAllClaims(token);
+        return claimsResolver.apply(claims);
+    }
+
+    private Claims extractAllClaims(String token) {
         return Jwts.parser()
-            .verifyWith(signingKey())
+            .verifyWith(getSigningKey())
             .build()
             .parseSignedClaims(token)
             .getPayload();
     }
 
-    private SecretKey signingKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(jwtProperties.getSecret());
+    private SecretKey getSigningKey() {
+        byte[] keyBytes = Decoders.BASE64.decode(jwtConfig.getSecret());
         return Keys.hmacShaKeyFor(keyBytes);
     }
 }

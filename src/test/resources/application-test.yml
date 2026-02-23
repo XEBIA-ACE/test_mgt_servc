@@ -1,28 +1,16 @@
 spring:
-  datasource:
-    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
-
   jpa:
-    database-platform: org.hibernate.dialect.H2Dialect
     show-sql: true
-
   flyway:
-    enabled: false  # Use JPA schema generation in tests
+    enabled: true
 
-  jpa:
-    hibernate:
-      ddl-auto: create-drop
-
-app:
-  jwt:
-    secret: dGVzdC1zZWNyZXQta2V5LWZvci11bml0LXRlc3RzLW9ubHktMjU2LWJpdHMtbG9uZw==
-    access-token-expiration-ms: 60000
-    refresh-token-expiration-ms: 300000
-    issuer: user-management-service-test
+jwt:
+  secret: dGVzdFNlY3JldEtleUZvclVuaXRUZXN0c09ubHlEb05vdFVzZUluUHJvZHVjdGlvbkVudmlyb25tZW50
+  access-token-expiration-ms: 3600000
+  refresh-token-expiration-ms: 604800000
+  issuer: test-issuer
 
 logging:
   level:
     com.example.usermanagement: DEBUG
+    org.springframework.security: DEBUG
