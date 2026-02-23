@@ -19,18 +19,22 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * Intercepts every request, extracts the Bearer JWT from the Authorization header,
+ * Intercepts every request, extracts the JWT from the Authorization header,
  * validates it, and populates the Spring Security context if valid.
+ *
+ * <p>Runs exactly once per request ({@link OncePerRequestFilter}).
+ * Failures are silently ignored — the request proceeds unauthenticated,
+ * and endpoint-level security will reject it if authentication is required.</p>
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
 
-    private final JwtTokenProvider tokenProvider;
+    private final JwtTokenProvider jwtTokenProvider;
     private final UserDetailsService userDetailsService;
 
     @Override
@@ -39,31 +43,43 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain) throws ServletException, IOException {
 
-        String token = extractBearerToken(request);
+        final String authHeader = request.getHeader(AUTHORIZATION_HEADER);
 
-        if (token != null && tokenProvider.validateToken(token)) {
-            String username = tokenProvider.getUsernameFromToken(token);
+        // Skip non-Bearer requests immediately
+        if (!StringUtils.hasText(authHeader) || !authHeader.startsWith(BEARER_PREFIX)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
-            // Only load user details if there is no authentication in the context yet
-            if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-                var authentication = new UsernamePasswordAuthenticationToken(
-                        userDetails, null, userDetails.getAuthorities());
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-                log.debug("Authenticated user '{}' via JWT", username);
+        final String jwt = authHeader.substring(BEARER_PREFIX.length());
+
+        try {
+            final String userEmail = jwtTokenProvider.extractUsername(jwt);
+
+            // Only authenticate if not already authenticated for this request
+            if (StringUtils.hasText(userEmail)
+                    && SecurityContextHolder.getContext().getAuthentication() == null) {
+
+                UserDetails userDetails = userDetailsService.loadUserByUsername(userEmail);
+
+                if (jwtTokenProvider.isTokenValid(jwt, userDetails)) {
+                    UsernamePasswordAuthenticationToken authToken =
+                        new UsernamePasswordAuthenticationToken(
+                            userDetails,
+                            null,
+                            userDetails.getAuthorities()
+                        );
+                    authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                    log.debug("Authenticated request for user: {}", userEmail);
+                }
             }
+        } catch (Exception e) {
+            log.warn("Could not authenticate request from token: {}", e.getMessage());
+            // Clear context on any unexpected error to prevent partial auth state
+            SecurityContextHolder.clearContext();
         }
 
         filterChain.doFilter(request, response);
-    }
-
-    /** Extracts the raw token string from the Authorization: Bearer <token> header. */
-    private String extractBearerToken(HttpServletRequest request) {
-        String header = request.getHeader(AUTHORIZATION_HEADER);
-        if (StringUtils.hasText(header) && header.startsWith(BEARER_PREFIX)) {
-            return header.substring(BEARER_PREFIX.length());
-        }
-        return null;
     }
 }

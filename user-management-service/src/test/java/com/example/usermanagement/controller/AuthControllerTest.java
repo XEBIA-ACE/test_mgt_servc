@@ -1,19 +1,21 @@
 package com.example.usermanagement.controller;
 
-import com.example.usermanagement.dto.request.LoginRequest;
-import com.example.usermanagement.dto.request.RegisterRequest;
-import com.example.usermanagement.dto.response.AuthResponse;
-import com.example.usermanagement.dto.response.UserResponse;
-import com.example.usermanagement.exception.UsernameAlreadyExistsException;
+import com.example.usermanagement.exception.EmailAlreadyExistsException;
+import com.example.usermanagement.model.dto.request.LoginRequest;
+import com.example.usermanagement.model.dto.request.RefreshTokenRequest;
+import com.example.usermanagement.model.dto.request.RegisterRequest;
+import com.example.usermanagement.model.dto.response.AuthResponse;
+import com.example.usermanagement.model.dto.response.UserResponse;
 import com.example.usermanagement.service.AuthService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -21,13 +23,13 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(AuthController.class)
+@SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
-@DisplayName("AuthController Slice Tests")
+@DisplayName("Auth Controller Tests")
 class AuthControllerTest {
 
     @Autowired
@@ -39,110 +41,150 @@ class AuthControllerTest {
     @MockBean
     private AuthService authService;
 
-    // Required by SecurityConfig wiring in WebMvcTest context
-    @MockBean
-    private com.example.usermanagement.security.JwtTokenProvider jwtTokenProvider;
-
-    @MockBean
-    private com.example.usermanagement.security.JwtAuthenticationFilter jwtAuthenticationFilter;
+    // ===== Register =====
 
     @Test
-    @DisplayName("POST /api/v1/auth/register returns 201 with token on success")
+    @DisplayName("POST /auth/register — valid request returns 201 with tokens")
     void register_validRequest_returns201() throws Exception {
-        RegisterRequest request = new RegisterRequest();
-        request.setUsername("test_user");
-        request.setEmail("test@example.com");
-        request.setPassword("S3cur3P@ss!");
-        request.setFirstName("Test");
-        request.setLastName("User");
-
-        AuthResponse authResponse = AuthResponse.builder()
-                .accessToken("test.jwt.token")
-                .refreshToken(UUID.randomUUID().toString())
-                .expiresIn(900)
-                .user(UserResponse.builder()
-                        .id(UUID.randomUUID())
-                        .username("test_user")
-                        .email("test@example.com")
-                        .build())
-                .build();
+        RegisterRequest request = buildRegisterRequest();
+        AuthResponse authResponse = buildAuthResponse();
 
         when(authService.register(any(RegisterRequest.class))).thenReturn(authResponse);
 
         mockMvc.perform(post("/api/v1/auth/register")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.access_token").value("test.jwt.token"))
-                .andExpect(jsonPath("$.data.token_type").value("Bearer"));
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.access_token").value("test-access-token"))
+            .andExpect(jsonPath("$.data.token_type").value("Bearer"));
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/register returns 400 when email is invalid")
+    @DisplayName("POST /auth/register — invalid email returns 400")
     void register_invalidEmail_returns400() throws Exception {
-        RegisterRequest request = new RegisterRequest();
-        request.setUsername("test_user");
+        RegisterRequest request = buildRegisterRequest();
         request.setEmail("not-an-email");
-        request.setPassword("S3cur3P@ss!");
 
         mockMvc.perform(post("/api/v1/auth/register")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false));
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.errors.email").exists());
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/register returns 409 when username is taken")
-    void register_duplicateUsername_returns409() throws Exception {
-        RegisterRequest request = new RegisterRequest();
-        request.setUsername("existing");
-        request.setEmail("new@example.com");
-        request.setPassword("S3cur3P@ss!");
-
-        when(authService.register(any(RegisterRequest.class)))
-                .thenThrow(new UsernameAlreadyExistsException("existing"));
+    @DisplayName("POST /auth/register — weak password returns 400")
+    void register_weakPassword_returns400() throws Exception {
+        RegisterRequest request = buildRegisterRequest();
+        request.setPassword("weak");
 
         mockMvc.perform(post("/api/v1/auth/register")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.success").value(false));
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success").value(false));
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/login returns 200 with tokens on valid credentials")
+    @DisplayName("POST /auth/register — duplicate email returns 409")
+    void register_duplicateEmail_returns409() throws Exception {
+        when(authService.register(any())).thenThrow(new EmailAlreadyExistsException("Email already registered"));
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(buildRegisterRequest())))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.success").value(false));
+    }
+
+    // ===== Login =====
+
+    @Test
+    @DisplayName("POST /auth/login — valid credentials returns 200 with tokens")
     void login_validCredentials_returns200() throws Exception {
         LoginRequest request = new LoginRequest();
-        request.setUsernameOrEmail("test@example.com");
-        request.setPassword("S3cur3P@ss!");
+        request.setEmail("test@example.com");
+        request.setPassword("Test@1234");
 
-        AuthResponse authResponse = AuthResponse.builder()
-                .accessToken("access.token")
-                .refreshToken(UUID.randomUUID().toString())
-                .expiresIn(900)
-                .build();
-
-        when(authService.login(any(LoginRequest.class))).thenReturn(authResponse);
+        when(authService.login(any(LoginRequest.class))).thenReturn(buildAuthResponse());
 
         mockMvc.perform(post("/api/v1/auth/login")
-                        .with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.access_token").value("access.token"));
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.access_token").value("test-access-token"));
     }
 
     @Test
-    @WithMockUser
-    @DisplayName("POST /api/v1/auth/logout returns 200 for authenticated user")
-    void logout_authenticatedUser_returns200() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/logout").with(csrf()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
+    @DisplayName("POST /auth/login — bad credentials returns 401")
+    void login_badCredentials_returns401() throws Exception {
+        LoginRequest request = new LoginRequest();
+        request.setEmail("test@example.com");
+        request.setPassword("WrongPass@1");
+
+        when(authService.login(any())).thenThrow(new BadCredentialsException("Bad credentials"));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("POST /auth/login — missing email returns 400")
+    void login_missingEmail_returns400() throws Exception {
+        LoginRequest request = new LoginRequest();
+        request.setPassword("Test@1234");
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest());
+    }
+
+    // ===== Refresh =====
+
+    @Test
+    @DisplayName("POST /auth/refresh — valid token returns new access token")
+    void refresh_validToken_returns200() throws Exception {
+        RefreshTokenRequest request = new RefreshTokenRequest();
+        request.setRefreshToken("valid-refresh-token");
+
+        when(authService.refreshToken(any())).thenReturn(buildAuthResponse());
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.access_token").value("test-access-token"));
+    }
+
+    // ===== Helpers =====
+
+    private RegisterRequest buildRegisterRequest() {
+        RegisterRequest req = new RegisterRequest();
+        req.setUsername("testuser");
+        req.setEmail("test@example.com");
+        req.setPassword("Test@1234");
+        req.setFirstName("Test");
+        req.setLastName("User");
+        return req;
+    }
+
+    private AuthResponse buildAuthResponse() {
+        return AuthResponse.builder()
+            .accessToken("test-access-token")
+            .refreshToken("test-refresh-token")
+            .expiresIn(900)
+            .user(UserResponse.builder()
+                .id(UUID.randomUUID())
+                .email("test@example.com")
+                .username("testuser")
+                .build())
+            .build();
     }
 }

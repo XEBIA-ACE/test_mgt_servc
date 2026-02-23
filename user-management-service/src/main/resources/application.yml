@@ -1,87 +1,44 @@
 spring:
   application:
     name: user-management-service
-
-  # Profile-specific overrides are in application-{profile}.yml
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
-  # Jackson
-  jackson:
-    default-property-inclusion: non_null
-    serialization:
-      write-dates-as-timestamps: false
-    deserialization:
-      fail-on-unknown-properties: false
-    time-zone: UTC
-
-  # JPA / Hibernate
-  jpa:
-    open-in-view: false           # Prevent lazy-loading issues via open session in view
-    properties:
-      hibernate:
-        format_sql: false
-        jdbc:
-          batch_size: 25
-        order_inserts: true
-        order_updates: true
-
-  # Flyway — auto-runs migrations on startup
-  flyway:
+server:
+  port: ${SERVER_PORT:8080}
+  # Compress responses larger than 1 KB
+  compression:
     enabled: true
-    locations: classpath:db/migration
-    baseline-on-migrate: false
-    validate-on-migrate: true
+    min-response-size: 1024
 
-# JWT configuration
-app:
-  jwt:
-    # Base64-encoded HMAC-SHA512 secret (512-bit minimum). Override via APP_JWT_SECRET env var.
-    secret: ${APP_JWT_SECRET}
-    # Access token lifetime: 15 minutes
-    access-token-expiration-ms: ${APP_JWT_ACCESS_TOKEN_EXPIRATION_MS:900000}
-    # Refresh token lifetime: 30 days
-    refresh-token-expiration-ms: ${APP_JWT_REFRESH_TOKEN_EXPIRATION_MS:2592000000}
-  token:
-    # How often to run the expired-token cleanup job
-    cleanup-interval-ms: ${APP_TOKEN_CLEANUP_INTERVAL_MS:3600000}
-
-# Actuator
+# Actuator — health and metrics endpoints
 management:
   endpoints:
     web:
       exposure:
         include: health,info,metrics,prometheus
-      base-path: /actuator
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: when_authorized
   info:
     env:
       enabled: true
 
+# Build info for /actuator/info
 info:
   app:
     name: ${spring.application.name}
-    version: "@project.version@"
-    description: User Management Service
+    description: User Management Service with JWT and role-based access control
+    version: '@project.version@'
 
-# Springdoc OpenAPI
-springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-    operations-sorter: method
-    tags-sorter: alpha
-    display-request-duration: true
-
-# Logging
+# Structured logging
 logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
   level:
     root: INFO
-    com.example.usermanagement: INFO
-    org.springframework.security: WARN
-    org.hibernate.SQL: WARN
+    com.example.usermanagement: DEBUG
+    org.springframework.security: INFO
+    # Enable SQL logging in dev only (overridden per profile)
+    org.hibernate.SQL: OFF
+    org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG

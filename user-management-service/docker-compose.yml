@@ -1,63 +1,78 @@
-version: "3.9"
-
-# Local development stack
-# Usage:
-#   docker compose up -d          # Start all services
-#   docker compose logs -f app    # Tail application logs
-#   docker compose down -v        # Stop and remove volumes
+version: '3.9'
 
 services:
-
-  # ── PostgreSQL ───────────────────────────────────────────────────────────────
-  postgres:
-    image: postgres:16-alpine
-    container_name: ums-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB:       ${DB_NAME:-user_mgmt_dev}
-      POSTGRES_USER:     ${DB_USERNAME:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-    ports:
-      - "${DB_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-user_mgmt_dev}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ── Application ──────────────────────────────────────────────────────────────
+  # ===== Application =====
   app:
     build:
       context: .
       dockerfile: Dockerfile
-      target: runtime
-    container_name: ums-app
-    restart: unless-stopped
+    container_name: user-management-service
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SERVER_PORT=8080
+      - DB_URL=jdbc:postgresql://postgres:5432/user_management_dev
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - JWT_SECRET=${JWT_SECRET:-dGhpcy1pcy1hLXZlcnktbG9uZy1hbmQtc2VjdXJlLXNlY3JldC1rZXktZm9yLWRldmVsb3BtZW50LW9ubHk=}
+      - JWT_ACCESS_TOKEN_EXPIRATION_MS=${JWT_ACCESS_TOKEN_EXPIRATION_MS:-900000}
+      - JWT_REFRESH_TOKEN_EXPIRATION_DAYS=${JWT_REFRESH_TOKEN_EXPIRATION_DAYS:-7}
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
-      SPRING_PROFILES_ACTIVE: dev
-      DB_HOST:     postgres
-      DB_PORT:     5432
-      DB_NAME:     ${DB_NAME:-user_mgmt_dev}
-      DB_USERNAME: ${DB_USERNAME:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      # IMPORTANT: Replace with a real 512-bit secret in staging/production
-      APP_JWT_SECRET: ${APP_JWT_SECRET:-dGhpcmlzYS1kZXYtb25seS1zZWNyZXQtdGhhdC1pcy1sb25nLWVub3VnaC1mb3ItaHM1MTItZG9udC11c2UtaW4tcHJvZA==}
-      APP_JWT_ACCESS_TOKEN_EXPIRATION_MS:  ${APP_JWT_ACCESS_TOKEN_EXPIRATION_MS:-900000}
-      APP_JWT_REFRESH_TOKEN_EXPIRATION_MS: ${APP_JWT_REFRESH_TOKEN_EXPIRATION_MS:-2592000000}
-    ports:
-      - "${APP_PORT:-8080}:8080"
+    networks:
+      - app-network
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q 'UP'"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
 
+  # ===== PostgreSQL Database =====
+  postgres:
+    image: postgres:16-alpine
+    container_name: user-management-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=user_management_dev
+      - POSTGRES_USER=${DB_USERNAME:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # ===== pgAdmin (optional, activate with --profile tools) =====
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: user-management-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@example.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    depends_on:
+      - postgres
+    networks:
+      - app-network
+    restart: unless-stopped
+    profiles:
+      - tools
+
 volumes:
-  postgres_data:
+  postgres-data:
     driver: local
+
+networks:
+  app-network:
+    driver: bridge

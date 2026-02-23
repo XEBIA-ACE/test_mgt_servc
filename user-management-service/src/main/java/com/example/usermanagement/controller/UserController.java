@@ -1,107 +1,110 @@
 package com.example.usermanagement.controller;
 
-import com.example.usermanagement.dto.request.ChangePasswordRequest;
-import com.example.usermanagement.dto.request.UpdateUserRequest;
-import com.example.usermanagement.dto.response.ApiResponse;
-import com.example.usermanagement.dto.response.PagedResponse;
-import com.example.usermanagement.dto.response.UserResponse;
-import com.example.usermanagement.security.UserPrincipal;
+import com.example.usermanagement.model.dto.request.ChangePasswordRequest;
+import com.example.usermanagement.model.dto.request.UpdateUserRequest;
+import com.example.usermanagement.model.dto.response.ApiResponse;
+import com.example.usermanagement.model.dto.response.PagedResponse;
+import com.example.usermanagement.model.dto.response.UserResponse;
+import com.example.usermanagement.model.entity.User;
 import com.example.usermanagement.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
-/**
- * REST endpoints for user profile management.
- * All routes require a valid Bearer token.
- */
+@Slf4j
+@Validated
 @RestController
-@RequestMapping("/api/v1/users")
+@RequestMapping("/api/v1")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearerAuth")
-@Tag(name = "Users", description = "User profile CRUD operations")
+@Tag(name = "Users", description = "User profile management and admin user operations")
 public class UserController {
 
     private final UserService userService;
 
-    @GetMapping("/me")
-    @Operation(summary = "Get the profile of the currently authenticated user")
+    // ===== Authenticated-user self-service endpoints =====
+
+    @GetMapping("/users/me")
+    @Operation(summary = "Get the currently authenticated user's profile")
     public ResponseEntity<ApiResponse<UserResponse>> getCurrentUser(
-            @AuthenticationPrincipal UserPrincipal principal) {
-        return ResponseEntity.ok(ApiResponse.success(userService.getCurrentUser(principal)));
+            @AuthenticationPrincipal User currentUser) {
+        return ResponseEntity.ok(ApiResponse.success(userService.getUserById(currentUser.getId())));
     }
 
-    @PutMapping("/me")
-    @Operation(summary = "Update the profile of the currently authenticated user")
+    @PutMapping("/users/me")
+    @Operation(summary = "Update the currently authenticated user's profile")
     public ResponseEntity<ApiResponse<UserResponse>> updateCurrentUser(
-            @AuthenticationPrincipal UserPrincipal principal,
+            @AuthenticationPrincipal User currentUser,
             @Valid @RequestBody UpdateUserRequest request) {
-        return ResponseEntity.ok(ApiResponse.success(
-                userService.updateUser(principal.getId(), request, principal)));
+        UserResponse response = userService.updateUser(currentUser.getId(), request);
+        return ResponseEntity.ok(ApiResponse.success("Profile updated successfully", response));
     }
 
-    @PostMapping("/me/change-password")
-    @Operation(summary = "Change the password for the current user")
+    @PostMapping("/users/me/change-password")
+    @Operation(summary = "Change the password for the currently authenticated user")
     public ResponseEntity<ApiResponse<Void>> changePassword(
-            @AuthenticationPrincipal UserPrincipal principal,
+            @AuthenticationPrincipal User currentUser,
             @Valid @RequestBody ChangePasswordRequest request) {
-        userService.changePassword(principal, request);
-        return ResponseEntity.ok(ApiResponse.success("Password updated successfully"));
+        userService.changePassword(currentUser.getId(), request);
+        return ResponseEntity.ok(ApiResponse.success("Password changed successfully", null));
     }
 
-    @GetMapping
+    // ===== Admin-only endpoints =====
+
+    @GetMapping("/admin/users")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "List all users (admin only)", description = "Supports pagination and full-text search")
-    public ResponseEntity<ApiResponse<PagedResponse<UserResponse>>> listUsers(
-            @RequestParam(required = false)
-            @Parameter(description = "Search query (matches username, email, or name)") String search,
-            @RequestParam(defaultValue = "0")  @Parameter(description = "Page number (0-based)") int page,
-            @RequestParam(defaultValue = "20") @Parameter(description = "Page size")           int size,
-            @RequestParam(defaultValue = "createdAt") String sortBy,
-            @RequestParam(defaultValue = "desc")       String sortDir) {
-
-        Sort sort = sortDir.equalsIgnoreCase("asc")
-                ? Sort.by(sortBy).ascending()
-                : Sort.by(sortBy).descending();
-
-        PagedResponse<UserResponse> result = userService.listUsers(search, PageRequest.of(page, size, sort));
-        return ResponseEntity.ok(ApiResponse.success(result));
+    @Operation(summary = "List all users with pagination and optional search (Admin only)")
+    public ResponseEntity<ApiResponse<PagedResponse<UserResponse>>> getAllUsers(
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+            @RequestParam(required = false) String search) {
+        return ResponseEntity.ok(ApiResponse.success(userService.getAllUsers(page, size, search)));
     }
 
-    @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.id")
-    @Operation(summary = "Get user by ID (admin, or own profile)")
-    public ResponseEntity<ApiResponse<UserResponse>> getUserById(
-            @PathVariable UUID id) {
+    @GetMapping("/admin/users/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Get a user by ID (Admin only)")
+    public ResponseEntity<ApiResponse<UserResponse>> getUserById(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(userService.getUserById(id)));
     }
 
-    @PutMapping("/{id}")
+    @PutMapping("/admin/users/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Update any user's profile (admin only)")
+    @Operation(summary = "Update a user's profile by ID (Admin only)")
     public ResponseEntity<ApiResponse<UserResponse>> updateUser(
             @PathVariable UUID id,
-            @AuthenticationPrincipal UserPrincipal principal,
             @Valid @RequestBody UpdateUserRequest request) {
-        return ResponseEntity.ok(ApiResponse.success(userService.updateUser(id, request, principal)));
+        UserResponse response = userService.updateUser(id, request);
+        return ResponseEntity.ok(ApiResponse.success("User updated successfully", response));
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/admin/users/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Delete a user account (admin only)")
+    @Operation(summary = "Delete a user by ID (Admin only)")
     public ResponseEntity<ApiResponse<Void>> deleteUser(@PathVariable UUID id) {
         userService.deleteUser(id);
-        return ResponseEntity.ok(ApiResponse.success("User deleted successfully"));
+        return ResponseEntity.ok(ApiResponse.success("User deleted successfully", null));
+    }
+
+    @PatchMapping("/admin/users/{id}/role")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Assign a new role to a user (Admin only)")
+    public ResponseEntity<ApiResponse<UserResponse>> updateUserRole(
+            @PathVariable UUID id,
+            @RequestParam String role) {
+        UserResponse response = userService.updateUserRole(id, role);
+        return ResponseEntity.ok(ApiResponse.success("User role updated successfully", response));
     }
 }

@@ -1,14 +1,15 @@
 package com.example.usermanagement.service;
 
-import com.example.usermanagement.dto.request.UpdateUserRequest;
-import com.example.usermanagement.dto.response.UserResponse;
-import com.example.usermanagement.exception.EmailAlreadyExistsException;
 import com.example.usermanagement.exception.UserNotFoundException;
-import com.example.usermanagement.model.Role;
-import com.example.usermanagement.model.User;
-import com.example.usermanagement.repository.RoleRepository;
+import com.example.usermanagement.model.dto.request.ChangePasswordRequest;
+import com.example.usermanagement.model.dto.request.UpdateUserRequest;
+import com.example.usermanagement.model.dto.response.PagedResponse;
+import com.example.usermanagement.model.dto.response.UserResponse;
+import com.example.usermanagement.model.entity.User;
+import com.example.usermanagement.model.enums.Role;
 import com.example.usermanagement.repository.UserRepository;
-import com.example.usermanagement.security.UserPrincipal;
+import com.example.usermanagement.service.impl.UserServiceImpl;
+import com.example.usermanagement.util.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,140 +17,232 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("UserService Unit Tests")
 class UserServiceTest {
 
-    @Mock
-    private UserRepository userRepository;
-
-    @Mock
-    private RoleRepository roleRepository;
-
-    @Mock
-    private PasswordEncoder passwordEncoder;
+    @Mock private UserRepository userRepository;
+    @Mock private UserMapper userMapper;
+    @Mock private PasswordEncoder passwordEncoder;
 
     @InjectMocks
-    private UserService userService;
+    private UserServiceImpl userService;
 
+    private UUID userId;
     private User testUser;
-    private UUID testUserId;
-    private UserPrincipal adminPrincipal;
+    private UserResponse testUserResponse;
 
     @BeforeEach
     void setUp() {
-        testUserId = UUID.randomUUID();
-        Role userRole = Role.builder().id(1L).name(Role.RoleName.ROLE_USER).build();
-
+        userId = UUID.randomUUID();
         testUser = User.builder()
-                .id(testUserId)
-                .username("john_doe")
-                .email("john@example.com")
-                .password("$2a$12$hashedpassword")
-                .firstName("John")
-                .lastName("Doe")
-                .enabled(true)
-                .accountNonLocked(true)
-                .credentialsNonExpired(true)
-                .roles(Set.of(userRole))
-                .build();
+            .id(userId)
+            .username("testuser")
+            .email("test@example.com")
+            .password("encoded-password")
+            .firstName("Test")
+            .lastName("User")
+            .role(Role.USER)
+            .enabled(true)
+            .build();
 
-        Role adminRole = Role.builder().id(2L).name(Role.RoleName.ROLE_ADMIN).build();
-        User adminUser = User.builder()
-                .id(UUID.randomUUID())
-                .username("admin")
-                .email("admin@example.com")
-                .password("$2a$12$hashedpassword")
-                .roles(Set.of(adminRole))
-                .build();
-        adminPrincipal = UserPrincipal.of(adminUser);
+        testUserResponse = UserResponse.builder()
+            .id(userId)
+            .username("testuser")
+            .email("test@example.com")
+            .firstName("Test")
+            .lastName("User")
+            .role(Role.USER)
+            .enabled(true)
+            .build();
+    }
+
+    // ===== getUserById =====
+
+    @Test
+    @DisplayName("getUserById — existing ID returns mapped response")
+    void getUserById_existingId_returnsResponse() {
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+        when(userMapper.toUserResponse(testUser)).thenReturn(testUserResponse);
+
+        UserResponse result = userService.getUserById(userId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(userId);
+        assertThat(result.getEmail()).isEqualTo("test@example.com");
+        verify(userRepository).findById(userId);
     }
 
     @Test
-    @DisplayName("getUserById returns UserResponse when user exists")
-    void getUserById_existingUser_returnsResponse() {
-        when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
+    @DisplayName("getUserById — non-existing ID throws UserNotFoundException")
+    void getUserById_nonExistingId_throwsNotFound() {
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
 
-        UserResponse response = userService.getUserById(testUserId);
+        assertThatThrownBy(() -> userService.getUserById(userId))
+            .isInstanceOf(UserNotFoundException.class)
+            .hasMessageContaining(userId.toString());
+    }
 
-        assertThat(response.getId()).isEqualTo(testUserId);
-        assertThat(response.getUsername()).isEqualTo("john_doe");
-        assertThat(response.getEmail()).isEqualTo("john@example.com");
+    // ===== getAllUsers =====
+
+    @Test
+    @DisplayName("getAllUsers — no search returns all users paged")
+    void getAllUsers_noSearch_returnsPagedResult() {
+        Page<User> page = new PageImpl<>(List.of(testUser), PageRequest.of(0, 20), 1);
+        when(userRepository.findAll(any(PageRequest.class))).thenReturn(page);
+        when(userMapper.toUserResponse(testUser)).thenReturn(testUserResponse);
+
+        PagedResponse<UserResponse> result = userService.getAllUsers(0, 20, null);
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getTotalElements()).isEqualTo(1);
+        assertThat(result.isFirst()).isTrue();
+        assertThat(result.isLast()).isTrue();
     }
 
     @Test
-    @DisplayName("getUserById throws UserNotFoundException when user does not exist")
-    void getUserById_nonExistentUser_throwsNotFoundException() {
-        UUID unknownId = UUID.randomUUID();
-        when(userRepository.findById(unknownId)).thenReturn(Optional.empty());
+    @DisplayName("getAllUsers — with search uses searchUsers query")
+    void getAllUsers_withSearch_callsSearchQuery() {
+        Page<User> page = new PageImpl<>(List.of(testUser), PageRequest.of(0, 20), 1);
+        when(userRepository.searchUsers(eq("test"), any())).thenReturn(page);
+        when(userMapper.toUserResponse(testUser)).thenReturn(testUserResponse);
 
-        assertThatThrownBy(() -> userService.getUserById(unknownId))
-                .isInstanceOf(UserNotFoundException.class);
+        PagedResponse<UserResponse> result = userService.getAllUsers(0, 20, "test");
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(userRepository).searchUsers(eq("test"), any());
+        verify(userRepository, never()).findAll(any(PageRequest.class));
     }
 
-    @Test
-    @DisplayName("updateUser changes email when new email is unique")
-    void updateUser_uniqueEmail_updatesSuccessfully() {
-        when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
-        when(userRepository.existsByEmail("new@example.com")).thenReturn(false);
-        when(userRepository.save(any(User.class))).thenReturn(testUser);
+    // ===== updateUser =====
 
+    @Test
+    @DisplayName("updateUser — updates provided fields only")
+    void updateUser_validRequest_updatesFields() {
         UpdateUserRequest request = new UpdateUserRequest();
-        request.setEmail("new@example.com");
+        request.setFirstName("Updated");
+        request.setLastName("Name");
 
-        UserResponse response = userService.updateUser(testUserId, request, adminPrincipal);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+        when(userRepository.save(any(User.class))).thenReturn(testUser);
+        when(userMapper.toUserResponse(testUser)).thenReturn(testUserResponse);
 
-        assertThat(response).isNotNull();
+        userService.updateUser(userId, request);
+
+        assertThat(testUser.getFirstName()).isEqualTo("Updated");
+        assertThat(testUser.getLastName()).isEqualTo("Name");
         verify(userRepository).save(testUser);
     }
 
     @Test
-    @DisplayName("updateUser throws EmailAlreadyExistsException when email is taken")
-    void updateUser_duplicateEmail_throwsConflictException() {
-        when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
-        when(userRepository.existsByEmail("taken@example.com")).thenReturn(true);
-
+    @DisplayName("updateUser — duplicate username throws IllegalArgumentException")
+    void updateUser_duplicateUsername_throwsException() {
         UpdateUserRequest request = new UpdateUserRequest();
-        request.setEmail("taken@example.com");
+        request.setUsername("taken");
 
-        assertThatThrownBy(() -> userService.updateUser(testUserId, request, adminPrincipal))
-                .isInstanceOf(EmailAlreadyExistsException.class);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+        when(userRepository.existsByUsername("taken")).thenReturn(true);
 
-        verify(userRepository, never()).save(any());
+        assertThatThrownBy(() -> userService.updateUser(userId, request))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("taken");
     }
 
-    @Test
-    @DisplayName("deleteUser removes the user from the repository")
-    void deleteUser_existingUser_deletesSuccessfully() {
-        when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
-        doNothing().when(userRepository).delete(testUser);
+    // ===== deleteUser =====
 
-        userService.deleteUser(testUserId);
+    @Test
+    @DisplayName("deleteUser — existing user is deleted")
+    void deleteUser_existingUser_callsDelete() {
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+
+        userService.deleteUser(userId);
 
         verify(userRepository).delete(testUser);
     }
 
     @Test
-    @DisplayName("toUserResponse maps all fields correctly")
-    void toUserResponse_mapsAllFields() {
-        UserResponse response = userService.toUserResponse(testUser);
+    @DisplayName("deleteUser — non-existing user throws UserNotFoundException")
+    void deleteUser_nonExistingUser_throwsNotFound() {
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
 
-        assertThat(response.getId()).isEqualTo(testUserId);
-        assertThat(response.getUsername()).isEqualTo("john_doe");
-        assertThat(response.getEmail()).isEqualTo("john@example.com");
-        assertThat(response.getFirstName()).isEqualTo("John");
-        assertThat(response.getLastName()).isEqualTo("Doe");
-        assertThat(response.isEnabled()).isTrue();
-        assertThat(response.getRoles()).contains("ROLE_USER");
+        assertThatThrownBy(() -> userService.deleteUser(userId))
+            .isInstanceOf(UserNotFoundException.class);
+
+        verify(userRepository, never()).delete(any());
+    }
+
+    // ===== changePassword =====
+
+    @Test
+    @DisplayName("changePassword — correct current password updates password")
+    void changePassword_correctPassword_succeeds() {
+        ChangePasswordRequest request = new ChangePasswordRequest();
+        request.setCurrentPassword("OldPass@1");
+        request.setNewPassword("NewPass@1");
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches("OldPass@1", "encoded-password")).thenReturn(true);
+        when(passwordEncoder.encode("NewPass@1")).thenReturn("new-encoded-password");
+        when(userRepository.save(any())).thenReturn(testUser);
+
+        userService.changePassword(userId, request);
+
+        assertThat(testUser.getPassword()).isEqualTo("new-encoded-password");
+        verify(userRepository).save(testUser);
+    }
+
+    @Test
+    @DisplayName("changePassword — wrong current password throws IllegalArgumentException")
+    void changePassword_wrongPassword_throwsException() {
+        ChangePasswordRequest request = new ChangePasswordRequest();
+        request.setCurrentPassword("WrongPass@1");
+        request.setNewPassword("NewPass@1");
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches("WrongPass@1", "encoded-password")).thenReturn(false);
+
+        assertThatThrownBy(() -> userService.changePassword(userId, request))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("incorrect");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    // ===== updateUserRole =====
+
+    @Test
+    @DisplayName("updateUserRole — valid role updates user")
+    void updateUserRole_validRole_updatesRole() {
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+        when(userRepository.save(any())).thenReturn(testUser);
+        when(userMapper.toUserResponse(testUser)).thenReturn(testUserResponse);
+
+        userService.updateUserRole(userId, "ADMIN");
+
+        assertThat(testUser.getRole()).isEqualTo(Role.ADMIN);
+    }
+
+    @Test
+    @DisplayName("updateUserRole — invalid role throws IllegalArgumentException")
+    void updateUserRole_invalidRole_throwsException() {
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+
+        assertThatThrownBy(() -> userService.updateUserRole(userId, "SUPERUSER"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Invalid role");
     }
 }

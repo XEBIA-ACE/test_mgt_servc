@@ -3,103 +3,94 @@ package com.example.usermanagement.security;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
-import io.jsonwebtoken.security.SignatureException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.util.Date;
-import java.util.List;
-import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Function;
 
 /**
- * Handles creation and validation of JWT access tokens.
+ * Handles all JWT operations: creation, validation, and claim extraction.
  *
- * <p>Tokens are signed with HMAC-SHA512 using a Base64-encoded secret from configuration.
- * The secret must be at least 512 bits (64 bytes) for HS512.
+ * <p>Tokens are signed with HMAC-SHA256. The secret key must be Base64-encoded
+ * and at least 256 bits (32 bytes) to satisfy the algorithm requirements.</p>
  */
-@Component
 @Slf4j
+@Component
 public class JwtTokenProvider {
 
-    private final SecretKey signingKey;
-    private final long accessTokenValidityMs;
+    @Value("${app.jwt.secret}")
+    private String jwtSecret;
 
-    public JwtTokenProvider(
-            @Value("${app.jwt.secret}") String secret,
-            @Value("${app.jwt.access-token-expiration-ms}") long accessTokenValidityMs) {
-        this.signingKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
-        this.accessTokenValidityMs = accessTokenValidityMs;
+    @Value("${app.jwt.access-token-expiration-ms}")
+    private long accessTokenExpirationMs;
+
+    /** Generates an access token for the given UserDetails (no extra claims). */
+    public String generateAccessToken(UserDetails userDetails) {
+        return generateToken(new HashMap<>(), userDetails);
     }
 
-    /**
-     * Generates a signed JWT for the authenticated principal.
-     * Claims include: subject (username), roles, and standard timing claims.
-     */
-    public String generateToken(Authentication authentication) {
-        UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
-        return generateToken(principal);
-    }
-
-    public String generateToken(UserPrincipal principal) {
-        Date now = new Date();
-        Date expiry = new Date(now.getTime() + accessTokenValidityMs);
-
-        List<String> roles = principal.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .collect(Collectors.toList());
-
+    /** Generates a token with additional custom claims embedded in the payload. */
+    public String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
         return Jwts.builder()
-                .subject(principal.getUsername())
-                .claim("userId", principal.getId().toString())
-                .claim("roles", roles)
-                .issuedAt(now)
-                .expiration(expiry)
-                .signWith(signingKey, Jwts.SIG.HS512)
-                .compact();
+            .claims(extraClaims)
+            .subject(userDetails.getUsername())
+            .issuedAt(new Date())
+            .expiration(new Date(System.currentTimeMillis() + accessTokenExpirationMs))
+            .signWith(getSigningKey())
+            .compact();
     }
 
-    /** Extracts the username (subject) from a validated token. */
-    public String getUsernameFromToken(String token) {
-        return parseClaims(token).getSubject();
-    }
-
-    /** Returns the configured access token lifetime in milliseconds. */
-    public long getAccessTokenValidityMs() {
-        return accessTokenValidityMs;
+    /** Extracts the subject (email) from a token without validating expiry. */
+    public String extractUsername(String token) {
+        return extractClaim(token, Claims::getSubject);
     }
 
     /**
-     * Validates the token signature and expiry.
-     *
-     * @return true if the token is valid; false otherwise (errors are logged, not thrown)
+     * Returns true if the token is structurally valid, signed correctly,
+     * not expired, and belongs to the given user.
      */
-    public boolean validateToken(String token) {
+    public boolean isTokenValid(String token, UserDetails userDetails) {
         try {
-            parseClaims(token);
-            return true;
-        } catch (ExpiredJwtException ex) {
-            log.warn("JWT token is expired: {}", ex.getMessage());
-        } catch (UnsupportedJwtException ex) {
-            log.warn("JWT token is unsupported: {}", ex.getMessage());
-        } catch (MalformedJwtException ex) {
-            log.warn("JWT token is malformed: {}", ex.getMessage());
-        } catch (SignatureException ex) {
-            log.warn("JWT signature validation failed: {}", ex.getMessage());
-        } catch (IllegalArgumentException ex) {
-            log.warn("JWT token claims are empty: {}", ex.getMessage());
+            final String username = extractUsername(token);
+            return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+        } catch (JwtException | IllegalArgumentException e) {
+            log.warn("JWT validation failed: {}", e.getMessage());
+            return false;
         }
-        return false;
     }
 
-    private Claims parseClaims(String token) {
+    public boolean isTokenExpired(String token) {
+        return extractExpiration(token).before(new Date());
+    }
+
+    public Date extractExpiration(String token) {
+        return extractClaim(token, Claims::getExpiration);
+    }
+
+    public <T> T extractClaim(String token, Function<Claims, T> resolver) {
+        return resolver.apply(extractAllClaims(token));
+    }
+
+    private Claims extractAllClaims(String token) {
         return Jwts.parser()
-                .verifyWith(signingKey)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
+            .verifyWith(getSigningKey())
+            .build()
+            .parseSignedClaims(token)
+            .getPayload();
+    }
+
+    private SecretKey getSigningKey() {
+        byte[] keyBytes = Decoders.BASE64.decode(jwtSecret);
+        return Keys.hmacShaKeyFor(keyBytes);
+    }
+
+    public long getAccessTokenExpirationMs() {
+        return accessTokenExpirationMs;
     }
 }

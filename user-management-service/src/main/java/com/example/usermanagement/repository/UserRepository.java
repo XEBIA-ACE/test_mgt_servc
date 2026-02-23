@@ -1,6 +1,6 @@
 package com.example.usermanagement.repository;
 
-import com.example.usermanagement.model.User;
+import com.example.usermanagement.model.entity.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,27 +14,24 @@ import java.util.UUID;
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
 
-    Optional<User> findByUsername(String username);
-
     Optional<User> findByEmail(String email);
 
-    /** Finds by username or email — supports login with either identifier. */
-    @Query("SELECT u FROM User u WHERE u.username = :identifier OR u.email = :identifier")
-    Optional<User> findByUsernameOrEmail(@Param("identifier") String identifier);
-
-    boolean existsByUsername(String username);
+    Optional<User> findByUsername(String username);
 
     boolean existsByEmail(String email);
 
-    /** Case-insensitive search across username, email, first name and last name. */
-    @Query("""
-            SELECT u FROM User u
-            WHERE LOWER(u.username) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR LOWER(u.email)    LIKE LOWER(CONCAT('%', :query, '%'))
-               OR LOWER(u.firstName) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR LOWER(u.lastName)  LIKE LOWER(CONCAT('%', :query, '%'))
-            """)
-    Page<User> searchUsers(@Param("query") String query, Pageable pageable);
+    boolean existsByUsername(String username);
 
-    Page<User> findAllByEnabled(boolean enabled, Pageable pageable);
+    /**
+     * Full-text search across email, username, first name, and last name.
+     * Case-insensitive using LOWER() — for large tables consider a DB-level full-text index.
+     */
+    @Query("""
+        SELECT u FROM User u WHERE
+            LOWER(u.email)     LIKE LOWER(CONCAT('%', :search, '%')) OR
+            LOWER(u.username)  LIKE LOWER(CONCAT('%', :search, '%')) OR
+            LOWER(u.firstName) LIKE LOWER(CONCAT('%', :search, '%')) OR
+            LOWER(u.lastName)  LIKE LOWER(CONCAT('%', :search, '%'))
+        """)
+    Page<User> searchUsers(@Param("search") String search, Pageable pageable);
 }

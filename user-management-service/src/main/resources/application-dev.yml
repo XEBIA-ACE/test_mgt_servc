@@ -1,34 +1,48 @@
 spring:
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:user_mgmt_dev}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/user_management_dev}
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
       idle-timeout: 600000
-      max-lifetime: 1800000
 
   jpa:
-    show-sql: true
     hibernate:
-      ddl-auto: validate    # Flyway manages DDL; Hibernate only validates
+      ddl-auto: validate        # Schema managed by Flyway; JPA only validates
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+# JWT configuration
 app:
   jwt:
-    # DEV-ONLY secret — MUST be replaced in staging/production with a 512-bit random key
+    # IMPORTANT: Replace with a proper secret in real environments.
     # Generate: openssl rand -base64 64
-    secret: ${APP_JWT_SECRET:dGhpcmlzYS1kZXYtb25seS1zZWNyZXQtdGhhdC1pcy1sb25nLWVub3VnaC1mb3ItaHM1MTItZG9udC11c2UtaW4tcHJvZA==}
+    secret: ${JWT_SECRET:dGhpcy1pcy1hLXZlcnktbG9uZy1hbmQtc2VjdXJlLXNlY3JldC1rZXktZm9yLWRldmVsb3BtZW50LW9ubHk=}
+    access-token-expiration-ms: ${JWT_ACCESS_TOKEN_EXPIRATION_MS:900000}     # 15 min
+    refresh-token-expiration-days: ${JWT_REFRESH_TOKEN_EXPIRATION_DAYS:7}    # 7 days
 
-management:
-  endpoint:
-    health:
-      show-details: always
+# Swagger UI available at http://localhost:8080/swagger-ui.html
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
 
 logging:
   level:
-    com.example.usermanagement: DEBUG
-    org.springframework.security: DEBUG
     org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE

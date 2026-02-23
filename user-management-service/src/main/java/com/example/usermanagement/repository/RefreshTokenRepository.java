@@ -1,28 +1,31 @@
 package com.example.usermanagement.repository;
 
-import com.example.usermanagement.model.RefreshToken;
-import com.example.usermanagement.model.User;
+import com.example.usermanagement.model.entity.RefreshToken;
+import com.example.usermanagement.model.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
-public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
+public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID> {
 
     Optional<RefreshToken> findByToken(String token);
 
-    /** Revokes all active refresh tokens for a given user (used during logout). */
+    /** Revokes all active refresh tokens for the given user (called on login and logout). */
     @Modifying
     @Query("UPDATE RefreshToken rt SET rt.revoked = true WHERE rt.user = :user AND rt.revoked = false")
-    int revokeAllByUser(@Param("user") User user);
+    void revokeAllUserTokens(User user);
 
-    /** Purges all expired tokens to keep the table lean. Can be scheduled periodically. */
+    /**
+     * Hard-deletes tokens that are either expired or already revoked.
+     * Called by the nightly cleanup scheduled task.
+     */
     @Modifying
-    @Query("DELETE FROM RefreshToken rt WHERE rt.expiryDate < :now")
-    int deleteAllExpiredBefore(@Param("now") Instant now);
+    @Query("DELETE FROM RefreshToken rt WHERE rt.expiresAt < :now OR rt.revoked = true")
+    void deleteExpiredAndRevokedTokens(LocalDateTime now);
 }
