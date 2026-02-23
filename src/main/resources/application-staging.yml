@@ -1,0 +1,8 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+
+logging:
+  level:
+    com.example.usermanagement: INFO
+    org.springframework.security: WARN

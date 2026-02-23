@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+
+logging:
+  level:
+    root: WARN
+    com.example.usermanagement: INFO
+  pattern:
+    # JSON-structured logs for log aggregation (Datadog, ELK, etc.)
+    console: >
+      {"timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}","level":"%level",
+       "logger":"%logger","thread":"%thread","message":"%message"}%n
+
+management:
+  endpoint:
+    health:
+      show-details: never
