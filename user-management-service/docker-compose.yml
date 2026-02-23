@@ -1,0 +1,63 @@
+version: "3.9"
+
+# Local development stack
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose logs -f app    # Tail application logs
+#   docker compose down -v        # Stop and remove volumes
+
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ums-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${DB_NAME:-user_mgmt_dev}
+      POSTGRES_USER:     ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-user_mgmt_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Application ──────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: ums-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_HOST:     postgres
+      DB_PORT:     5432
+      DB_NAME:     ${DB_NAME:-user_mgmt_dev}
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      # IMPORTANT: Replace with a real 512-bit secret in staging/production
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-dGhpcmlzYS1kZXYtb25seS1zZWNyZXQtdGhhdC1pcy1sb25nLWVub3VnaC1mb3ItaHM1MTItZG9udC11c2UtaW4tcHJvZA==}
+      APP_JWT_ACCESS_TOKEN_EXPIRATION_MS:  ${APP_JWT_ACCESS_TOKEN_EXPIRATION_MS:-900000}
+      APP_JWT_REFRESH_TOKEN_EXPIRATION_MS: ${APP_JWT_REFRESH_TOKEN_EXPIRATION_MS:-2592000000}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q 'UP'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,32 @@
+# Test profile — uses in-memory H2 database; no Flyway (schema created by Hibernate)
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: false
+
+  flyway:
+    enabled: false    # Let Hibernate manage schema in tests
+
+app:
+  jwt:
+    # Safe test-only secret — never use in any live environment
+    secret: dGVzdC1vbmx5LXNlY3JldC10aGF0LWlzLWxvbmctZW5vdWdoLWZvci1oczUxMi1kb250LXVzZS1pbi1wcm9k
+    access-token-expiration-ms: 900000
+    refresh-token-expiration-ms: 2592000000
+  token:
+    cleanup-interval-ms: 999999999   # Disable scheduled cleanup during tests
+
+logging:
+  level:
+    com.example.usermanagement: DEBUG
+    org.springframework.security: DEBUG
